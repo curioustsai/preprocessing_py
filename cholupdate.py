@@ -102,7 +102,7 @@ if __name__ == '__main__':
         ground = LDLH + xxH
         print("ground:\n {}".format(ground))
 
-        L, D = ldlt_update(L, D, x, num_channel)
+        L, D = ldlh_update(L, D, x, num_channel)
         A = np.matmul(L, np.matmul(D, L.conj().T))
         print("A:\n {}".format(A))
 
@@ -113,6 +113,7 @@ if __name__ == '__main__':
         L_inv = forward_substitution(L, np.eye(num_channel, dtype=complex), num_channel)
         L_inv = L_inv.conj().T
         A_inv = np.matmul(L_inv, np.matmul(D_inv, L_inv.conj().T))
+
         I = np.matmul(ground, A_inv)
 
         print("AA^-1:\n {}".format(I))

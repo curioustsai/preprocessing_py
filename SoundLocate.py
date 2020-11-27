@@ -34,7 +34,7 @@ class SoundLocate:
         self.nchannel = nchannel
         self.fftlen = fftlen
         self.half_fftlen = fftlen // 2 + 1
-        self.target_angle = 90  # 225
+        self.target_angle = 252
 
         self.mic0_location = np.array([2, 0, 0]) / 100
         self.mic1_location = np.array([-2, 0, 0]) / 100
@@ -355,8 +355,10 @@ class SoundLocate:
         angle = angleBuf[FrameDelay - 1]
         # angle = angleBuf[0]
         DeltAngle = abs(angle - angleRetain)
-        if DeltAngle > 180:
-            DeltAngle = 360 - DeltAngle
+        # if DeltAngle > 180:
+        #     DeltAngle = 360 - DeltAngle
+        if DeltAngle < 0:
+            DeltAngle = 360 + DeltAngle
 
         if DeltAngle > 60:
             outbeam = 1
@@ -385,9 +387,7 @@ class SoundLocate:
         if angleRetain == ANGLE_UNVAL:
             return 0
 
-        delta_angle = abs(angleBuf[0] - angleRetain)
-        if delta_angle > 180:
-            delta_angle = 360 - delta_angle
+        delta_angle = min(abs(angleBuf[0] - angleRetain), 360 - abs(angleBuf[0] - angleRetain))
 
         inbeam = 0
         if delta_angle < 15:
