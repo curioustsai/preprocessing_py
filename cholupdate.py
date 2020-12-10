@@ -27,13 +27,11 @@ def ldlh_update(L, D, x, n):
     """
     A = (1-alpha)*A + alpha * x * x^H
     """
-    # a = 0.1
-    a = 1
+    a = 0.1
+    D = D * (1-a)
     for k in range(0, n):
-        # d = (1 - a) * D[k, k] + a * x[k, 0] * x[k, 0].conj()
         d = D[k, k] + a * x[k, 0] * x[k, 0].conj()
         b = x[k, 0] * a / d
-        # a = (1 - a) * D[k, k] * a / d
         a = D[k, k] * a / d
         D[k, k] = d
 
@@ -48,19 +46,51 @@ def forward_substitution(L, b, n):
     """
     Lx = b, solve x
     """
-    x = np.zeros((n, n), dtype=complex)
+    x = np.zeros((n, n), dtype=np.complex)
     for j in range(0, n):
         for i in range(j, n):
             x[i, j] = b[i, j] / L[i, i]
-            # b[i+1:n, j] = b[i+1:n, j] - L[i+1:n, i] * x[i, j]
-            for k in range(i+1, n):
-                b[k, j] = b[k, j] - L[k, i] * x[i, j]
+            b[i+1:n, j] = b[i+1:n, j] - L[i+1:n, i] * x[i, j]
+            # for k in range(i+1, n):
+            #     b[k, j] = b[k, j] - L[k, i] * x[i, j]
 
     return x
 
 
+def cholesky_decomposition(A, n):
+    L = np.zeros((n, n), dtype=np.complex)
+
+    for i in range(0, n):
+        for j in range(0, i+1):
+            s = 0
+            for k in range(0, j):
+                s += L[i, k] * L[j, k].conj()
+            if i == j:
+                L[i, j] = np.sqrt(A[i, i] - s)
+            else:
+                L[i, j] = 1.0 / L[j, j] * (A[i, j] - s)
+    return L
+
+
+def ldlh_decomposition(A, n):
+    L = np.eye(n, dtype=np.complex)
+    D = np.eye(n, dtype=np.complex)
+
+    for i in range(0, n):
+        for j in range(0, i+1):
+            s = 0
+            for k in range(0, j):
+                s += L[i, k] * L[j, k].conj() * D[k, k]
+
+            if i == j:
+                D[i, i] = A[i, i] - s
+            else:
+                L[i, j] = 1.0 / D[j, j] * (A[i, j] - s)
+    return L, D
+
+
 if __name__ == '__main__':
-    num_channel = 3
+    num_channel = 4
     D = np.eye(num_channel, dtype=complex) / np.sqrt(num_channel)
     L = np.eye(num_channel, dtype=complex)
     x = np.zeros((num_channel, 1), dtype=complex)
@@ -95,11 +125,12 @@ if __name__ == '__main__':
         print("A:\n {}".format(A))
         """
 
+        """
         xxH = np.matmul(x, x.conj().T)
         LDLH = np.matmul(L, np.matmul(D, L.conj().T))
 
-        # ground = 0.9*LDLH + 0.1*xxH
-        ground = LDLH + xxH
+        ground = 0.9*LDLH + 0.1*xxH
+        # ground = LDLH + xxH
         print("ground:\n {}".format(ground))
 
         L, D = ldlh_update(L, D, x, num_channel)
@@ -118,3 +149,25 @@ if __name__ == '__main__':
 
         print("AA^-1:\n {}".format(I))
         print(np.real(np.trace(I)))
+        """
+
+        xxH = np.matmul(x, x.conj().T)
+        print("xxH:\n{}".format(xxH))
+
+        L = cholesky_decomposition(xxH, num_channel)
+        B = np.matmul(L, L.conj().T)
+        print("LLH:\n{}".format(B))
+        print("L:\n{}".format(L))
+
+        # L_inv = forward_substitution(L, np.eye(num_channel, dtype=np.complex), num_channel)
+        # xxH_inv = np.linalg.inv(xxH)
+        # xxH_inv_recov = np.matmul(L_inv.conj().T, L_inv)
+        # print("xxH_inv:\n{}".format(xxH_inv))
+        # print("xxH_inv recover:\n{}".format(xxH_inv_recov))
+        # print("L_inv recover:\n{}".format(L_inv))
+
+        # L, D = ldlh_decomposition(xxH, num_channel)
+        # C = np.matmul(L, np.matmul(D, L.conj().T))
+        # print("LDLH:\n{}".format(C))
+        # print("L:\n{}".format(L))
+        # print("D:\n{}".format(D))

@@ -34,17 +34,26 @@ class SoundLocate:
         self.nchannel = nchannel
         self.fftlen = fftlen
         self.half_fftlen = fftlen // 2 + 1
-        self.target_angle = 252
+        self.free_track = 1  # free tracking mode
+        self.target_angle = 190  # 252  # only working disable free tracking mode
 
-        self.mic0_location = np.array([2, 0, 0]) / 100
-        self.mic1_location = np.array([-2, 0, 0]) / 100
-        self.mic2_location = np.array([0, 5.23, 0]) / 100
+        # self.mic0_location = np.array([2, 0, 0]) / 100
+        # self.mic1_location = np.array([-2, 0, 0]) / 100
+        # self.mic2_location = np.array([0, 5.23, 0]) / 100
+
         # self.mic0_location = np.array([4.5, 0, 0]) / 100
         # self.mic1_location = np.array([0, 4.5, 0]) / 100
         # self.mic2_location = np.array([-4.5, 0, 0]) / 100
+        # self.mic3_location = np.array([0, -4.5, 0]) / 100
+
+        # xmos
+        self.mic0_location = np.array([4.3*np.cos(-120*np.pi/180), 4.3*np.sin(-120*np.pi/180), 0]) / 100
+        self.mic1_location = np.array([4.3*np.cos(-60*np.pi/180), 4.3*np.sin(-60*np.pi/180), 0]) / 100
+        self.mic2_location = np.array([4.3*np.cos(60*np.pi/180), 4.3*np.sin(60*np.pi/180), 0]) / 100
+        self.mic3_location = np.array([4.3*np.cos(120*np.pi/180), 4.3*np.sin(120*np.pi/180), 0]) / 100
 
         # DOA parameters initialization
-        if self.nchannel == 3:
+        if self.nchannel >= 3:
             self.num_mic_pair = 3
             self.theta = 0  # range from [0, 180] in degree
             self.phi = 0  # range from [-90, 90] in degree
@@ -159,7 +168,7 @@ class SoundLocate:
     def FindDOA(self, X):
         self.fn = self.fn + 1
 
-        if self.nchannel == 3:
+        if self.nchannel >= 3:
             (angle1, gccVal1) = self.GccPhat(X[0, :], X[1, :], 0)
             (angle2, gccVal2) = self.GccPhat(X[0, :], X[2, :], 1)
             (angle3, gccVal3) = self.GccPhat(X[1, :], X[2, :], 2)
@@ -206,11 +215,13 @@ class SoundLocate:
         angleRetain = self.angleRetain[curBeamIdx]
         angleBuf = self.angleBuf
 
-        # inbeam = self.InbeamDet(angleBuf, angleRetain)
-        # outbeam = self.OutbeamDet(angleBuf, self.gccValueBuf, angleRetain, FrameDelay=0)
+        if self.free_track:
+            target_angle = angleRetain
+        else:
+            target_angle = self.target_angle
 
-        inbeam = self.InbeamDet(angleBuf, self.target_angle)
-        outbeam = self.OutbeamDet(angleBuf, self.gccValueBuf, self.target_angle, FrameDelay=0)
+        inbeam = self.InbeamDet(angleBuf, target_angle)
+        outbeam = self.OutbeamDet(angleBuf, self.gccValueBuf, target_angle, FrameDelay=0)
 
         return max_weight, angle_num, vad_num, angle_cluster, inbeam, outbeam, angleRetain
 
@@ -228,7 +239,7 @@ class SoundLocate:
         step = self.angleStep
         bufLen = self.angleBufLen  # 1 second buffer
 
-        if self.nchannel > 2:
+        if self.nchannel >= 3:
             angle_range = 360
         else:
             angle_range = 180
@@ -317,7 +328,7 @@ class SoundLocate:
             SameSourceCnt = self.sameSourceCnt[i]
 
             if DestAngle != ANGLE_UNVAL:
-                if self.nchannel == 3:
+                if self.nchannel >= 3:
                     if DestAngle - 20 < 0:
                         weight = max(weightBuf[360+DestAngle-20:360])
                         weight = max(weight, max(weightBuf[0:DestAngle+20]))

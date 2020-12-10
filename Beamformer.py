@@ -14,33 +14,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import eigh
 from scipy.linalg import eig
-
-
-def ldlh_update(L, D, x, n):
-    """
-    A = (1-alpha)*A + alpha * x * x^H
-    """
-    # a = 0.1
-    a = 1
-    for k in range(0, n):
-        # d = (1 - a) * D[k, k] + a * x[k, 0] * x[k, 0].conj()
-        d = D[k, k] + a * x[k, 0] * x[k, 0].conj()
-        b = x[k, 0] * a / d
-        # a = (1 - a) * D[k, k] * a / d
-        a = D[k, k] * a / d
-        D[k, k] = d
-
-        for r in range(k+1, n):
-            x[r, 0] = x[r, 0] - x[k, 0] * L[r, k]
-            L[r, k] = L[r, k] + b.conj() * x[r, 0]
-
-    return L, D
+from scipy.linalg import ldl
 
 
 def forward_substitution(L, b, n):
-    """
+    '''
     Lx = b, solve x
-    """
+    :param L:
+    :param b:
+    :param n:
+    :return:
+    '''
     x = np.zeros((n, n), dtype=complex)
     for j in range(0, n):
         for i in range(j, n):
@@ -52,6 +36,25 @@ def forward_substitution(L, b, n):
     return x
 
 
+def ldlh_update(L, D, x, n, alpha=0.1):
+    """
+    A = (1-alpha)*A + alpha * x * x^H
+    algorithm happens in-place
+    """
+    D = D * (1-alpha)
+    for k in range(0, n):
+        d = D[k, k] + alpha * x[k, 0] * x[k, 0].conj()
+        b = x[k, 0] * alpha / d
+        alpha = D[k, k] * alpha / d
+        D[k, k] = d
+
+        for r in range(k+1, n):
+            x[r, 0] = x[r, 0] - x[k, 0] * L[r, k]
+            L[r, k] = L[r, k] + b.conj() * x[r, 0]
+
+    return L, D
+
+
 class Beamformer:
     def __init__(self, half_fftlen, nchannel):
         self.fn = 0
@@ -61,8 +64,8 @@ class Beamformer:
         self.noiseRvv = np.zeros((half_fftlen, nchannel, nchannel), dtype=np.complex)
 
         for f in range(0, half_fftlen):
-            self.speechRyy[f][:][:] = np.eye(nchannel, nchannel) * 4096
-            self.noiseRvv[f][:][:] = np.eye(nchannel, nchannel) * 4096
+            self.speechRyy[f][:][:] = np.eye(nchannel, nchannel)
+            self.noiseRvv[f][:][:] = np.eye(nchannel, nchannel)
 
         self.speechRyy_cnt = 0
         self.noiseRvv_cnt = 0
@@ -90,8 +93,10 @@ class Beamformer:
             self.speechRyy_cnt = self.speechRyy_cnt + 1
             speechRyy_cnt = self.speechRyy_cnt
 
-            if speechRyy_cnt < 100:
+            if speechRyy_cnt < 20:
                 alpha = 0.5
+            elif speechRyy_cnt < 100:
+                alpha = 0.8
             else:
                 alpha = 0.95
 
@@ -110,6 +115,7 @@ class Beamformer:
         pow1 = sum(np.abs(X[0, :]))
         update_noise = 0
 
+        # if True:
         if (noise_status == 1) and (pow1 > 0):
             self.noiseRvv_cnt = self.noiseRvv_cnt + 1
             if self.noiseRvv_cnt == 1:
@@ -130,15 +136,15 @@ class Beamformer:
 
     def UpdateSteeringVector(self, update_speech, update_noise):
         if update_speech or update_noise:
-            Ryy = self.speechRyy
-            Rvv = self.noiseRvv
             for i in range(0, self.half_fftlen):
-                # Rxx = Ryy[i, :, :]
+                Ryy = self.speechRyy[i, :, :]
+                Rvv = self.noiseRvv[i, :, :]
+                Rxx = Ryy
 
-                if np.trace(Ryy[i, :, :]) > 2 * np.trace(Rvv[i, :, :]):
-                    Rxx = Ryy[i, :, :] - Rvv[i, :, :]
-                else:
-                    Rxx = Ryy[i, :, :]
+                # if np.trace(Ryy) > 2 * np.trace(Rvv):
+                #     Rxx = Ryy - Rvv
+                # else:
+                #     Rxx = Ryy
 
                 v = np.zeros((self.nchannel, 1), dtype=complex)
                 v[:, 0] = self.steering[i, :]
@@ -149,12 +155,6 @@ class Beamformer:
                 self.steering[i, :] = v[:, 0]
 
     def UpdateMvdrFilter(self, update_speech, update_noise):
-        """
-        Replace inverse matrix with rank-one Cholesky decomposition
-        :param update_speech:
-        :param update_noise:
-        :return:
-        """
         if (1 == update_speech) or (1 == update_noise):
             Ryy = self.speechRyy
             Rvv = self.noiseRvv
@@ -163,12 +163,11 @@ class Beamformer:
             for i in range(0, self.half_fftlen):
                 steering[:, 0] = self.steering[i, :]
 
-                # FIXME: remove it, if we have proper initialization
-                # if np.linalg.det(Rvv[i, :, :]) == 0:
-                #     for n in range(0, self.nchannel):
-                #         Rvv[i, n, n] = Rvv[i, n, n] * 1.01
+                l, d, perm = ldl(Rvv[i, :, :], lower=1)
+                d_inv = np.linalg.inv(d)
+                l_inv = np.linalg.inv(l[perm, :])
 
-                R_inv = np.linalg.inv(Rvv[i, :, :])
+                R_inv = np.matmul(l_inv.conj().T, np.matmul(d_inv, l_inv))
                 num = np.matmul(R_inv, steering)
                 denum = np.matmul(steering.conj().T, num)
                 W = num / denum
@@ -176,110 +175,94 @@ class Beamformer:
                 self.mvdr_coef[i, :] = W.T
         return
 
-    # def UpdateAdaptiveMvdrFilter(self):
-    #     """
-    #     update adaptive mvdr coefficient
-    #     : param v, column vector, (nchannel, 1)
-    #     : param Rxx, covarince matrix (nchannel, nchannel)
-    #     : param w, coefficient vector, column vector (nchannel, 1)
-    #     g_n = (I - (v * v^H / ||v||^2) ) * R * w_(n-1)
-    #     mu = g_n^H * R * w_(n-1) / g_n^H * R * g_n
-    #     w_n = w_n-1 - mu * g_n
-    #     """
-    #     if self.fn == 1:
-    #         self.adaptive_mvdr_coef = self.steering.copy()
-    #         return
-    #
-    #     Ryy = self.speechRyy
-    #     Rvv = self.noiseRvv
-    #     w = np.zeros((self.nchannel, 1), dtype=complex)
-    #     v = np.zeros((self.nchannel, 1), dtype=complex)
-    #
-    #     for i in range(0, self.half_fftlen):
-    #
-    #         w[:, 0] = self.adaptive_mvdr_coef[i, :]
-    #         v[:, 0] = self.steering[i, :]
-    #
-    #         Rxx = Ryy[i, :, :]
-    #         # Rxx = Rxx / np.trace(Rxx)
-    #         Rxx_w = np.matmul(Rxx, w)
-    #         V = np.matmul(v, v.conj().T)
-    #         p = (np.eye(self.nchannel)) - (V / np.trace(V))
-    #         g = np.matmul(p, Rxx_w)
-    #
-    #         num = np.matmul(g.conj().T, Rxx_w)
-    #         den = np.matmul(Rxx, g)
-    #         den = np.matmul(g.conj().T, den)
-    #         mu = num / den
-    #         w = w - mu * g
-    #
-    #         self.adaptive_mvdr_coef[i, :] = w[:, 0]
-    #
-    #     return
-
     # FIXME: compared to closed-form solution, this results are not good
-    # need to come up with an interpretaion
+    # need to come up with an interpretation
     def UpdateAdaptiveMvdrFilter(self, update_speech, update_noise):
         if (1 == update_speech) or (1 == update_noise):
             Ryy = self.speechRyy
             Rvv = self.noiseRvv
             w = np.zeros((self.nchannel, 1), dtype=complex)
             v = np.zeros((self.nchannel, 1), dtype=complex)
-            mu = 1
 
             for i in range(0, self.half_fftlen):
                 w[:, 0] = self.adaptive_mvdr_coef[i, :]
                 v[:, 0] = self.steering[i, :]
+                if self.fn == 1:
+                    w[:, 0] = v[:, 0]
+
+                # Rxx = Ryy[i, :, :]
+                # Rxx = Rxx / np.trace(Rxx)
+                # Rxx_w = np.matmul(Rxx, w)
+                # w = w - mu * Rxx_w
+                # g = np.real(np.matmul(w.T, v))
+                # if g < 1:
+                #     w = w + (1 - g) * v/self.nchannel
 
                 Rxx = Ryy[i, :, :]
-                Rxx = Rxx / np.trace(Rxx)
-                Rxx_w = np.matmul(Rxx, w)
-                w = w - mu * Rxx_w
-                g = np.real(np.matmul(w.conj().T, v))
-                if g < 1:
-                    w = w + (1 - g) * v
+                # Rxx = Rxx / np.trace(Rxx)
 
-                # self.adaptive_mvdr_coef[i, :] = 0.9 * self.adaptive_mvdr_coef[i, :] + 0.5 * w[:, 0]
+                cnt = 0
+                while cnt <= 10:
+                    cnt = cnt + 1
+                    Rxx_w = np.matmul(Rxx, w)
+
+                    Rvv = np.matmul(v, v.conj().T)
+                    Rvv_norm = Rvv / np.trace(Rvv)
+                    g = np.eye(self.nchannel) - Rvv_norm
+                    g = np.matmul(g, Rxx_w)
+
+                    if np.sum(abs(g)) < 1e-8:
+                        break
+
+                    mu = np.matmul(g.conj().T, Rxx_w) / np.matmul(g.conj().T, np.matmul(Rxx, g))
+                    w = w - mu * g
+
+                # self.adaptive_mvdr_coef[i, :] = 0.9 * self.adaptive_mvdr_coef[i, :] + 0.1 * w[:, 0]
                 self.adaptive_mvdr_coef[i, :] = w[:, 0]
 
         return
 
-    def UpdateGevFilter(self, update_speech, update_noise):
-        if (1 == update_speech) or (1 == update_noise):
-            Ryy = self.speechRyy
-            Rvv = self.noiseRvv
-
-            for i in range(0, self.half_fftlen):
-                if np.linalg.det(Rvv[i, :, :]) == 0:
-                    for n in range(0, self.nchannel):
-                        Rvv[i, n, n] = Rvv[i, n, n] * 1.01
-                Rvv_inv = np.linalg.inv(Rvv[i, :, :])
-                numerator = np.matmul(Rvv_inv, Ryy[i, :, :])
-                eigvalue, eigvect = np.linalg.eig(numerator)
-                eigvalue_abs = abs(eigvalue)
-                index = np.argmax(eigvalue_abs)
-                W = eigvect[:, index]
-                W = W / np.sqrt(self.nchannel)
-
-                self.gev_coef[i, :] = W.T
-        return
+    # def UpdateGevFilter(self, update_speech, update_noise):
+    #     if (1 == update_speech) or (1 == update_noise):
+    #         Ryy = self.speechRyy
+    #         Rvv = self.noiseRvv
+    #
+    #         for i in range(0, self.half_fftlen):
+    #             if np.linalg.det(Rvv[i, :, :]) == 0:
+    #                 for n in range(0, self.nchannel):
+    #                     Rvv[i, n, n] = Rvv[i, n, n] * 1.01
+    #             Rvv_inv = np.linalg.inv(Rvv[i, :, :])
+    #             numerator = np.matmul(Rvv_inv, Ryy[i, :, :])
+    #             eigvalue, eigvect = np.linalg.eig(numerator)
+    #             eigvalue_abs = abs(eigvalue)
+    #             index = np.argmax(eigvalue_abs)
+    #             W = eigvect[:, index]
+    #             W = W / np.sqrt(self.nchannel)
+    #
+    #             self.gev_coef[i, :] = W.T
+    #     return
 
     def UpdateMwfFilter(self, update_speech, update_noise):
-        mu = 1.0
+        mu = 0.0
         ref_ch = 0
         if (1 == update_speech) or (1 == update_noise):
-            Ryy = self.speechRyy
-            Rvv = self.noiseRvv
-
             for i in range(0, self.half_fftlen):
-                Rxx = Ryy[i, :, :] - Rvv[i, :, :]
-                if np.trace(Rxx) < 0:
-                    Rxx = Ryy[i, :, :]
+                Ryy = self.speechRyy[i, :, :]
+                Rvv = self.noiseRvv[i, :, :]
 
-                if np.linalg.det(Rxx) == 0:
-                    for n in range(0, self.nchannel):
-                        Rxx[n, n] = Rxx[n, n] * 1.01
-                Rvv_inv = np.linalg.inv(Rvv[i, :, :])
+                if np.trace(Ryy) < 2 * np.trace(Rvv):
+                    Rxx = Ryy
+                else:
+                    Rxx = Ryy - Rvv
+
+                # if np.linalg.det(Rxx) == 0:
+                #     for n in range(0, self.nchannel):
+                #         Rxx[n, n] = Rxx[n, n] * 1.01
+                l, d, perm = ldl(Rvv[i, :, :], lower=1)
+                d_inv = np.linalg.inv(d)
+                l_inv = np.linalg.inv(l[perm, :])
+                Rvv_inv = np.matmul(l_inv.conj().T, np.matmul(d_inv, l_inv))
+
                 numerator = np.matmul(Rvv_inv, Rxx)
                 lambda_mu = mu + np.trace(numerator)
                 numerator = numerator / (lambda_mu + 1e-12)

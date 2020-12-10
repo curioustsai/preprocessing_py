@@ -47,18 +47,18 @@ def main(input_file, output_file):
     fftLen = 512
     half_fftLen = fftLen // 2 + 1
 
-    # frame_stop = 5000
+    # frame_stop = 12000
     # data_len = min(data_len, frame_stop * sample_per_frame)
 
     frame_cnt = 0
-    output_buf = np.zeros([data_len, 5], dtype=np.int16)
+    total_frame = data_len // sample_per_frame
+    output_buf = np.zeros([data_len, 3], dtype=np.int16)
 
     if debugger["cepstrumVAD"]:
         vad_buf = np.zeros(data_len, dtype=np.int16)
 
     if debugger["noiseEst"]:
         noise_est_buf = np.zeros([data_len, 2], dtype=np.int16)
-        total_frame = data_len // sample_per_frame
         speech_bin_2d = np.zeros((total_frame, half_fftLen), dtype=np.uint8)
         noise_bin_2d = np.zeros((total_frame, half_fftLen), dtype=np.uint8)
         mag_2d = np.zeros((total_frame, half_fftLen), dtype=np.uint8)
@@ -66,6 +66,7 @@ def main(input_file, output_file):
 
     if debugger["doa"]:
         doa_buf = np.zeros([data_len, 5], dtype=np.int16)
+        polar_buf = np.zeros([total_frame, 2], dtype=np.float)
 
     if debugger["agc"]:
         agc_buf = np.zeros([data_len, 3], dtype=np.int16)
@@ -75,13 +76,14 @@ def main(input_file, output_file):
     while (frame_cnt+1)*sample_per_frame < data_len:
         data_in = data[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame]
 
-        (processed_mvdr, processed_adaptive_mvdr, processed_ns, processed_agc, inbeam, outbeam) = spxEn.process(data_in)
+        # (processed_mvdr, processed_adaptive_mvdr, processed_ns, processed_agc, inbeam, outbeam) = spxEn.process(data_in)
+        (processed_mvdr, processed_ns, processed_agc, inbeam, outbeam) = spxEn.process(data_in)
 
         output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 0] = data_in[:, spxEn.ref_channel]
         output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 1] = processed_mvdr
-        output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 2] = processed_adaptive_mvdr
-        output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 3] = processed_ns
-        output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 4] = processed_agc
+        # output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 2] = processed_adaptive_mvdr
+        output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 2] = processed_ns
+        # output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 4] = processed_agc
         # output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 2] = processed_gev
         # output_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 3] = processed_mwf
 
@@ -95,11 +97,14 @@ def main(input_file, output_file):
             doa_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 1] = \
                 int(outbeam * 16384)
             doa_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 2] = \
-                int(spxEn.SoundLocate.theta / 180 * 32767)
+                int(spxEn.SoundLocate.theta)
             doa_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 3] = \
-                int(spxEn.SoundLocate.angleCluster / 180 * 32767)
+                int(spxEn.SoundLocate.angleCluster)
             doa_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame, 4] = \
-                int(spxEn.SoundLocate.angleRetain[spxEn.SoundLocate.curBeamIdx] / 180 * 32767)
+                int(spxEn.SoundLocate.angleRetain[spxEn.SoundLocate.curBeamIdx])
+
+            polar_buf[frame_cnt, 0] = spxEn.SoundLocate.angleRetain[spxEn.SoundLocate.curBeamIdx] / 180 * np.pi
+            polar_buf[frame_cnt, 1] = spxEn.bfloss
 
         if debugger["cepstrumVAD"]:
             vad_buf[frame_cnt*sample_per_frame:(frame_cnt+1)*sample_per_frame] = spxEn.Cepstrum.vad * 16384
@@ -134,6 +139,13 @@ def main(input_file, output_file):
     drawMask(noise_bin_2d, output_buf[:, 0], fftLen, frame_rate, noise_outfile)
     drawMask(mag_2d, output_buf[:, 0], fftLen, frame_rate, mag_outfile, color='magma')
     drawMask(noiseMag_2d, output_buf[:, 0], fftLen, frame_rate, noiseMag_outfile, color='magma')
+
+    # plt.axes(projection='polar')
+    # for i in range(0, total_frame):
+    #     rad = polar_buf[i, 0]
+    #     loss = polar_buf[i, 1]
+    #     plt.polar(rad, loss, 'g.')
+    # plt.show()
 
 
 if __name__ == '__main__':

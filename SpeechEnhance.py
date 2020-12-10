@@ -21,7 +21,7 @@ func_switch = {
     'SnrEst': 1,
     'DOA': 1,
     'Beamformer': 1,
-    'PostFilt': 0,
+    'PostFilt': 1,
 }
 
 
@@ -40,6 +40,7 @@ class SpeechEnhance:
         self.fftwin = np.sqrt(self.fftwin[1:fftLen+1])
         self.MagSqs = np.zeros((self.nchannel, self.half_fftLen), dtype=float)
         self.Noises = np.zeros((self.nchannel, self.half_fftLen), dtype=float)
+        self.bfloss = 0
 
         # Cepstrum VAD
         CepFreqUp = int(fs/40)
@@ -125,7 +126,6 @@ class SpeechEnhance:
         """
         if nchannel >= 2:
             angle, energy = self.SoundLocate.FindDOA(Zxx)
-            # TODO: Utilize inbeam / outbeam to update coefficient
             max_weight, angle_num, vad_num, angle_cluster, inbeam, outbeam, angleRetain = \
                 self.SoundLocate.Cluster(angle, energy, speech_frame)
 
@@ -142,15 +142,19 @@ class SpeechEnhance:
             update_speech = self.Beamformer.UpdateSpeechMatrix(Zxx, speech_status, speech_bin)
             self.Beamformer.UpdateSteeringVector(update_speech, update_noise)
 
-            self.Beamformer.UpdateAdaptiveMvdrFilter(update_speech, update_noise)
-            output_adaptive_mvdr = self.Beamformer.DoFilter(Zxx, 'adaptive_mvdr')
+            # self.Beamformer.UpdateAdaptiveMvdrFilter(update_speech, update_noise)
+            # output_adaptive_mvdr = self.Beamformer.DoFilter(Zxx, 'adaptive_mvdr')
 
             self.Beamformer.UpdateMvdrFilter(update_speech, update_noise)
             output_mvdr = self.Beamformer.DoFilter(Zxx, 'mvdr')
 
+            power_bf = 10*np.log10(np.sum(np.square(np.abs(Zxx[self.ref_channel, :]))))
+            power_af = 10*np.log10(np.sum(np.square(np.abs(output_mvdr))))
+            self.bfloss = power_af - power_bf
+
             # self.Beamformer.UpdateGevFilter(update_speech, update_noise)
             # output_gev = self.Beamformer.DoFilter(Zxx, 'gev')
-            #
+
             # self.Beamformer.UpdateMwfFilter(update_speech, update_noise)
             # output_mwf = self.Beamformer.DoFilter(Zxx, 'mwf')
 
@@ -161,13 +165,13 @@ class SpeechEnhance:
             self.overlap_mvdr = y_mvdr[nshift:]
             data_out_mvdr = np.int16(data_out_mvdr)
 
-            y_adaptive_mvdr = np.fft.irfft(output_adaptive_mvdr)
-            y_adaptive_mvdr = np.multiply(y_adaptive_mvdr, fftwin)
-            data_out_adaptive_mvdr = y_adaptive_mvdr[0:nshift]
-            data_out_adaptive_mvdr = data_out_adaptive_mvdr + self.overlap_adaptive_mvdr
-            self.overlap_adaptive_mvdr = y_adaptive_mvdr[nshift:]
-            # normalized and format to int16
-            data_out_adaptive_mvdr = np.int16(data_out_adaptive_mvdr)
+            # y_adaptive_mvdr = np.fft.irfft(output_adaptive_mvdr)
+            # y_adaptive_mvdr = np.multiply(y_adaptive_mvdr, fftwin)
+            # data_out_adaptive_mvdr = y_adaptive_mvdr[0:nshift]
+            # data_out_adaptive_mvdr = data_out_adaptive_mvdr + self.overlap_adaptive_mvdr
+            # self.overlap_adaptive_mvdr = y_adaptive_mvdr[nshift:]
+            # # normalized and format to int16
+            # data_out_adaptive_mvdr = np.int16(data_out_adaptive_mvdr)
 
             # y_gev = np.fft.irfft(output_gev)
             # y_gev = np.multiply(y_gev, fftwin)
@@ -226,7 +230,8 @@ class SpeechEnhance:
         data_agc, pka_fp, g_fp, max_abs_y = self.AutoGainControl.agc(data_out_ns, speech_status, spp_mean)
 
         if nchannel >= 2:
-            return data_out_mvdr, data_out_adaptive_mvdr, data_out_ns, data_agc, inbeam, outbeam
+            # return data_out_mvdr, data_out_adaptive_mvdr, data_out_ns, data_agc, inbeam, outbeam
+            return data_out_mvdr, data_out_ns, data_agc, inbeam, outbeam
         else:
             return data_out_ns, data_agc
 
