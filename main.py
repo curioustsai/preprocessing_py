@@ -47,7 +47,7 @@ def main(input_file, output_file):
     fftLen = 512
     half_fftLen = fftLen // 2 + 1
 
-    # frame_stop = 12000
+    # frame_stop = 2400  # 12000
     # data_len = min(data_len, frame_stop * sample_per_frame)
 
     frame_cnt = 0
@@ -131,14 +131,14 @@ def main(input_file, output_file):
     wavfile.write(output_file.replace('.wav', '_doa.wav'), frame_rate, doa_buf)
     # wavfile.write(output_file.replace('.wav', '_agc.wav'), frame_rate, agc_buf)
 
-    speech_outfile = output_file.replace('.wav', '_speech_bin.jpg')
-    noise_outfile = output_file.replace('.wav', '_noise_bin.jpg')
-    mag_outfile = output_file.replace('.wav', '_mag.jpg')
-    noiseMag_outfile = output_file.replace('.wav', '_noiseMag.jpg')
-    drawMask(speech_bin_2d, output_buf[:, 0], fftLen, frame_rate, speech_outfile)
-    drawMask(noise_bin_2d, output_buf[:, 0], fftLen, frame_rate, noise_outfile)
-    drawMask(mag_2d, output_buf[:, 0], fftLen, frame_rate, mag_outfile, color='magma')
-    drawMask(noiseMag_2d, output_buf[:, 0], fftLen, frame_rate, noiseMag_outfile, color='magma')
+    # speech_outfile = output_file.replace('.wav', '_speech_bin.jpg')
+    # noise_outfile = output_file.replace('.wav', '_noise_bin.jpg')
+    # mag_outfile = output_file.replace('.wav', '_mag.jpg')
+    # noiseMag_outfile = output_file.replace('.wav', '_noiseMag.jpg')
+    # drawMask(speech_bin_2d, output_buf[:, 0], fftLen, frame_rate, speech_outfile)
+    # drawMask(noise_bin_2d, output_buf[:, 0], fftLen, frame_rate, noise_outfile)
+    # drawMask(mag_2d, output_buf[:, 0], fftLen, frame_rate, mag_outfile, color='magma')
+    # drawMask(noiseMag_2d, output_buf[:, 0], fftLen, frame_rate, noiseMag_outfile, color='magma')
 
     # plt.axes(projection='polar')
     # for i in range(0, total_frame):

@@ -102,6 +102,8 @@ class SpeechEnhance:
 
         for i in range(0, nchannel):
             Zxx[i, :] = np.fft.rfft(fft_data[:, i], self.fftLen)
+            Zxx[i, 0] = 1e-36
+            Zxx[i, 1] = 1e-36
 
         # Cepstrum VAD, a rough VAD used for noise estimation
         Zxx_ref = Zxx[self.ref_channel, :]
@@ -131,7 +133,8 @@ class SpeechEnhance:
 
             # Beamformer
             noise_status = int((noise_frame == 1) and (cep_vad == 0))
-            update_noise = self.Beamformer.UpdateNoiseMatrix(Zxx, noise_status, noise_bin)
+            # update_noise = self.Beamformer.UpdateNoiseMatrix(Zxx, noise_status, noise_bin)
+            update_noise = self.Beamformer.UpdateNoiseMatrix(Zxx, noise_status, self.SnrEst.spp)
 
             if snr_max > 15:
                 speech_status = int((speech_frame == 1) and (cep_vad == 1)) and inbeam

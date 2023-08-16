@@ -64,8 +64,8 @@ class Beamformer:
         self.noiseRvv = np.zeros((half_fftlen, nchannel, nchannel), dtype=np.complex)
 
         for f in range(0, half_fftlen):
-            self.speechRyy[f][:][:] = np.eye(nchannel, nchannel)
-            self.noiseRvv[f][:][:] = np.eye(nchannel, nchannel)
+            self.speechRyy[f][:][:] = np.eye(nchannel, nchannel) * 4096
+            self.noiseRvv[f][:][:] = np.eye(nchannel, nchannel) * 4096
 
         self.speechRyy_cnt = 0
         self.noiseRvv_cnt = 0
@@ -89,14 +89,12 @@ class Beamformer:
         self.fn = self.fn + 1
 
         # if (speech_status == 1) and (pow1 > 0):
-        if ((speech_status == 1) and (pow1 > 0)) or self.fn <= 20:
+        if ((speech_status == 1) and (pow1 > 0)) or self.fn <= 50:
             self.speechRyy_cnt = self.speechRyy_cnt + 1
             speechRyy_cnt = self.speechRyy_cnt
 
-            if speechRyy_cnt < 20:
+            if speechRyy_cnt < 100:
                 alpha = 0.5
-            elif speechRyy_cnt < 100:
-                alpha = 0.8
             else:
                 alpha = 0.95
 
@@ -106,29 +104,29 @@ class Beamformer:
                 Rxx = np.dot(X_freq, X_freq.conj().T)
                 self.speechRyy[i, :, :] = alpha * self.speechRyy[i, :, :] + (1 - alpha) * Rxx
 
-            if (speechRyy_cnt < 100) or (speechRyy_cnt % 10 == 0):
-                update_speech = 1
+            # if (speechRyy_cnt < 100) or (speechRyy_cnt % 10 == 0):
+            update_speech = 1
 
         return update_speech
 
-    def UpdateNoiseMatrix(self, X, noise_status, noise_bin):
+    # def UpdateNoiseMatrix(self, X, noise_status, noise_bin):
+    def UpdateNoiseMatrix(self, X, noise_status, spp):
         pow1 = sum(np.abs(X[0, :]))
         update_noise = 0
 
         # if True:
         if (noise_status == 1) and (pow1 > 0):
             self.noiseRvv_cnt = self.noiseRvv_cnt + 1
-            if self.noiseRvv_cnt == 1:
+            if self.noiseRvv_cnt <= 100:
                 alpha = 0.5
             else:
                 alpha = 0.95
 
             X_freq = np.zeros([self.nchannel, 1], dtype=np.complex)
             for i in range(0, self.half_fftlen):
-                if 1 == noise_bin[i]:
-                    X_freq[:, 0] = X[:, i]
-                    Rxx = np.dot(X_freq, X_freq.conj().T)
-                    self.noiseRvv[i, :, :] = alpha * self.noiseRvv[i, :, :] + (1 - alpha) * Rxx
+                X_freq[:, 0] = X[:, i] * (1 - spp[i])
+                Rxx = np.dot(X_freq, X_freq.conj().T)
+                self.noiseRvv[i, :, :] = alpha * self.noiseRvv[i, :, :] + (1 - alpha) * Rxx
 
             update_noise = 1
 
@@ -141,14 +139,12 @@ class Beamformer:
                 Rvv = self.noiseRvv[i, :, :]
                 Rxx = Ryy
 
-                # if np.trace(Ryy) > 2 * np.trace(Rvv):
-                #     Rxx = Ryy - Rvv
-                # else:
-                #     Rxx = Ryy
+                if np.trace(Ryy) > 2 * np.trace(Rvv):
+                    Rxx = Ryy - Rvv
 
                 v = np.zeros((self.nchannel, 1), dtype=complex)
                 v[:, 0] = self.steering[i, :]
-                Rxx = Rxx / np.trace(Rxx)
+                # Rxx = Rxx / np.trace(Rxx)
                 eig_vect = np.matmul(Rxx, v)
                 eig_norm = np.sqrt(np.sum(np.abs(eig_vect) ** 2))
                 v = eig_vect / eig_norm

@@ -34,8 +34,8 @@ class SoundLocate:
         self.nchannel = nchannel
         self.fftlen = fftlen
         self.half_fftlen = fftlen // 2 + 1
-        self.free_track = 1  # free tracking mode
-        self.target_angle = 190  # 252  # only working disable free tracking mode
+        self.free_track = 0  # free tracking mode
+        self.target_angle = 205  # only working disable free tracking mode
 
         # self.mic0_location = np.array([2, 0, 0]) / 100
         # self.mic1_location = np.array([-2, 0, 0]) / 100
@@ -47,34 +47,40 @@ class SoundLocate:
         # self.mic3_location = np.array([0, -4.5, 0]) / 100
 
         # xmos
-        self.mic0_location = np.array([4.3*np.cos(-120*np.pi/180), 4.3*np.sin(-120*np.pi/180), 0]) / 100
-        self.mic1_location = np.array([4.3*np.cos(-60*np.pi/180), 4.3*np.sin(-60*np.pi/180), 0]) / 100
-        self.mic2_location = np.array([4.3*np.cos(60*np.pi/180), 4.3*np.sin(60*np.pi/180), 0]) / 100
-        self.mic3_location = np.array([4.3*np.cos(120*np.pi/180), 4.3*np.sin(120*np.pi/180), 0]) / 100
+        self.mic_location = np.zeros((3, nchannel), dtype=np.float)
+        self.mic_location[:, 0] = np.array([0.043*np.cos(60*np.pi/180), 0.043*np.sin(60*np.pi/180), 0])
+        self.mic_location[:, 1] = np.array([0.043*np.cos(120*np.pi/180), 0.043*np.sin(120*np.pi/180), 0])
+        self.mic_location[:, 2] = np.array([0.043*np.cos(-120*np.pi/180), 0.043*np.sin(-120*np.pi/180), 0])
+        self.mic_location[:, 3] = np.array([0.043*np.cos(60*np.pi/180), 0.043*np.sin(60*np.pi/180), 0])
 
         # DOA parameters initialization
         if self.nchannel >= 3:
-            self.num_mic_pair = 3
+            self.num_mic_pair = 6 if self.nchannel == 4 else 3
             self.theta = 0  # range from [0, 180] in degree
             self.phi = 0  # range from [-90, 90] in degree
             self.energy = 0
-            self.basis = np.zeros([3, self.num_mic_pair])
-            self.basis[:, 0] = self.mic1_location - self.mic0_location  # pair01
-            self.basis[:, 1] = self.mic2_location - self.mic0_location  # pair02
-            self.basis[:, 2] = self.mic2_location - self.mic1_location  # pair12
+            self.basis = np.zeros((3, self.num_mic_pair), dtype=np.float)
+
+            index = 0
+            for i in range(0, nchannel):
+                for j in range(i+1, nchannel):
+                    self.basis[:, index] = self.mic_location[:, j] - self.mic_location[:, i]
+                    index = index + 1
 
             # x, y, z
-            basis01, basis02, basis12 = self.basis[:, 0], self.basis[:, 1], self.basis[:, 2]
-            self.projection_mat = np.matmul(basis01[:, np.newaxis], basis01[np.newaxis, :]) + \
-                                  np.matmul(basis02[:, np.newaxis], basis02[np.newaxis, :]) + \
-                                  np.matmul(basis12[:, np.newaxis], basis12[np.newaxis, :])
+            self.projection_mat = np.zeros((3, 3), dtype=np.float)
+            for i in range(0, self.num_mic_pair):
+                basis = self.basis[:, i]
+                self.projection_mat += np.matmul(basis[:, np.newaxis], basis[np.newaxis, :])
+
             self.trace_mat = np.trace(self.projection_mat)
+
         elif self.nchannel == 2:
             self.num_mic_pair = 1
             self.theta = 0  # range from [0, 180] in degree
             self.energy = 0
             self.basis = np.zeros([3, self.num_mic_pair], dtype=np.int)
-            self.basis[:, 0] = self.mic1_location - self.mic0_location  # pair01
+            self.basis[:, 0] = self.mic_location[:, 1] - self.mic_location[:, 0]  # pair01
 
         # initialization for gccphat
         self.theta_pair = np.zeros([self.num_mic_pair])
@@ -112,10 +118,10 @@ class SoundLocate:
         self.angleRetainMaxTime = np.int(10/0.016)
 
         # Cluster parameters
-        self.gccVal_thrd = 0.1  # 0.35
-        self.angle_num_thrd = 20  # 10
+        self.gccVal_thrd = 0.10  # 0.1
+        self.angle_num_thrd = 10  # 10
         self.vad_num_thrd = 10
-        self.weight_thrd = 0.1  # 0.5
+        self.weight_thrd = 0.1  # 0.1
 
     def GccPhat(self, X, Y, pair_id=0):
         # discrete implementation w/ interpolation points
@@ -148,9 +154,13 @@ class SoundLocate:
 
         return source_angle, energy
 
-    def Projection(self, theta01, theta02, theta12):
-        b = np.cos(theta01/180*np.pi) * self.basis[:, 0] + np.cos(theta02/180*np.pi) * self.basis[:, 1] + \
-            np.cos(theta12/180*np.pi) * self.basis[:, 2]
+    def Projection(self):
+        # b = np.cos(theta01/180*np.pi) * self.basis[:, 0] + np.cos(theta02/180*np.pi) * self.basis[:, 1] + \
+        #     np.cos(theta12/180*np.pi) * self.basis[:, 2]
+        #
+        b = np.zeros(3)
+        for i in range(0, self.num_mic_pair):
+            b = b + np.cos(self.theta_pair[i] / 180 * np.pi) * self.basis[:, i]
 
         # iterate 20 times for convergence
         n = np.array([0, 0, 0.5])
@@ -169,15 +179,22 @@ class SoundLocate:
         self.fn = self.fn + 1
 
         if self.nchannel >= 3:
-            (angle1, gccVal1) = self.GccPhat(X[0, :], X[1, :], 0)
-            (angle2, gccVal2) = self.GccPhat(X[0, :], X[2, :], 1)
-            (angle3, gccVal3) = self.GccPhat(X[1, :], X[2, :], 2)
+            # (angle1, gccVal1) = self.GccPhat(X[0, :], X[1, :], 0)
+            # (angle2, gccVal2) = self.GccPhat(X[0, :], X[2, :], 1)
+            # (angle3, gccVal3) = self.GccPhat(X[1, :], X[2, :], 2)
+            #
+            # self.theta_pair[0] = angle1
+            # self.theta_pair[1] = angle2
 
-            self.theta_pair[0] = angle1
-            self.theta_pair[1] = angle2
+            gccVal = 0
+            mic_pair_index = 0
+            for i in range(0, self.nchannel):
+                for j in range(i+1, self.nchannel):
+                    self.theta_pair[mic_pair_index], gccVal = self.GccPhat(X[i,:], X[j,:], mic_pair_index)
+                    mic_pair_index = mic_pair_index + 1
 
-            self.theta, self.phi = self.Projection(angle1, angle2, angle3)
-            self.energy = gccVal1
+            self.theta, self.phi = self.Projection()
+            self.energy = gccVal
             # print("fn: {}, theta: {:3.2f}, phi: {:3.2f}, energy: {:3.4f}, energy: {:3.4f}".format(
             #     self.fn, self.theta, self.phi, gccVal1, gccVal2))
 
@@ -208,8 +225,8 @@ class SoundLocate:
         if max_weight > weight_thrd and angle_num > angle_num_thrd and vad_num > vad_num_thrd:
             self.ReplaceAngle(angle_cluster, angleDistThrd=10)
 
-        if max_weight > 0.25:
-            self.RetainAngle(weightBuf, weightThrd=0.25)
+        if max_weight > weight_thrd:
+            self.RetainAngle(weightBuf, weightThrd=weight_thrd)
 
         curBeamIdx = self.curBeamIdx
         angleRetain = self.angleRetain[curBeamIdx]
